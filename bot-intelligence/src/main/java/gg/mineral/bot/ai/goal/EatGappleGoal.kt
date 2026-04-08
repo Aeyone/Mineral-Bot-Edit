@@ -13,12 +13,16 @@ import gg.mineral.bot.api.goal.Timebound
 import gg.mineral.bot.api.instance.ClientInstance
 import gg.mineral.bot.api.inv.item.Item
 import gg.mineral.bot.api.screen.type.ContainerScreen
+import kotlin.random.Random
+import kotlin.random.nextInt
 
 class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance), Sporadic, Timebound {
     override var executing: Boolean = false
     override var startTime: Long = 0
     override val maxDuration: Long = 100
     private var eating = false
+    private var cancelEatingTick = 0
+    private var random = 0
 
     override fun shouldExecute(): Boolean {
         var hasRegen = false
@@ -31,15 +35,17 @@ class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstan
             break
         }
 
-        val shouldExecute =
-            canSeeEnemy() && hasGapple() && !hasRegen && (fakePlayer.health < 10 || distanceAwayFromEnemies() in 8.0..16.0)
+        val shouldExecute = canSeeEnemy() && hasGapple() && !hasRegen && (fakePlayer.health < 10)
         logger.debug("Checking shouldExecute: $shouldExecute")
         return shouldExecute
     }
 
     override fun onStart() {
-        pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-        unpressKey(Key.Type.KEY_S, Key.Type.KEY_A, Key.Type.KEY_D)
+        random = Random.nextInt(0..1)
+        logger.info("eat gapple goal type : $random")
+        cancelEatingTick = clientInstance.currentTick
+        keyboardStopAll()
+        pressKey(100, Key.Type.KEY_SPACE)
     }
 
     init {
@@ -115,6 +121,22 @@ class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstan
         return gappleSlot
     }
 
+    private fun safeEatGapple() {
+        if (distanceAwayFromEnemies() < 16) {
+            when (random) {
+                0 -> {
+                     setMouseYaw(angleAwayFromEnemies())
+                     pressKey(Key.Type.KEY_SPACE, Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+                }
+                1 -> {
+                     setMouseYaw(angleAwayFromEnemies() + 180)
+                     unpressKey(Key.Type.KEY_W)
+                     pressKey(Key.Type.KEY_S)
+                }
+            }
+        }
+    }
+
     override fun onTick(tick: Tick) {
         val gappleSlot = getGappleSlot()
         val fakePlayer = clientInstance.fakePlayer
@@ -127,7 +149,7 @@ class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstan
         }
 
         tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
-            pressKey(10, Key.Type.KEY_ESCAPE)
+            pressKey(10, Key.Type.KEY_E)
         }
 
         tick.prerequisite("Correct Hotbar Slot Selected", inventory.heldSlot == gappleSlot) {
@@ -138,23 +160,27 @@ class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstan
 
         tick.finishIf("Has Regen", fakePlayer.activePotionEffectIds.any { it == PotionEffectType.REGENERATION.id })
 
+        tick.prerequisite("Maintain a safe distance", distanceAwayFromEnemies() > 6.0 || (clientInstance.currentTick - cancelEatingTick >= 20)) {
+            safeEatGapple()
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+            eating = false
+        }
+
         tick.prerequisite("Eating", eating && getButton(MouseButton.Type.RIGHT_CLICK).isPressed) {
             pressButton(MouseButton.Type.RIGHT_CLICK)
             eating = true
         }
 
         tick.execute {
-            if (distanceAwayFromEnemies() < 16) {
-                setMouseYaw(angleAwayFromEnemies())
-                pressKey(Key.Type.KEY_SPACE, Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-            }
+            safeEatGapple()
         }
     }
 
     override fun onEnd() {
         eating = false
         unpressButton(MouseButton.Type.RIGHT_CLICK)
-        unpressKey(Key.Type.KEY_SPACE)
+        keyboardStopAll()
+        pressKey( Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
     }
 
     override fun onEvent(event: Event): Boolean {

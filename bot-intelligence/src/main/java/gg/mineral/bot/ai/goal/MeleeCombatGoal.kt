@@ -1,5 +1,8 @@
 package gg.mineral.bot.ai.goal
 
+import gg.mineral.bot.ai.goal.MeleeCombatGoal.ResetType.*
+import gg.mineral.bot.ai.goal.findpath.Astar
+import gg.mineral.bot.ai.goal.findpath.MoveMent.Pos
 import gg.mineral.bot.ai.goal.type.InventoryGoal
 import gg.mineral.bot.api.controls.Key
 import gg.mineral.bot.api.controls.MouseButton
@@ -12,8 +15,17 @@ import gg.mineral.bot.api.instance.ClientInstance
 import gg.mineral.bot.api.inv.item.Item
 import gg.mineral.bot.api.screen.type.ContainerScreen
 import gg.mineral.bot.api.world.block.Block
+import gg.mineral.bot.api.math.Positionable
+import java.util.UUID
+import kotlin.math.PI
 
 class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance) {
+    data class NextPos(
+        override val x : Double,
+        override val y : Double,
+        override val z : Double
+    ) : Positionable
+
     private var target: ClientPlayer? = null
 
     private val meanDelay = (1000 / clientInstance.configuration.averageCps).toLong()
@@ -27,6 +39,15 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     private var currentVerticalAimAcceleration = 1.0f
     private var lastHorizontalTurnSignum = 1
     private var lastVerticalTurnSignum = 1
+    private var currentPath : List<Pos> = ArrayList()
+    private var currentNodeIndex = 0
+    private var lastAstarFindPathTick = 0
+    private var lastJumpTime = 0
+    private var lastCheckStapTime: Long = 0
+    private var lastHurtEntity: UUID = clientInstance.fakePlayer.uuid
+    private var lastTargetDamageTick = 0
+    private var lastSelfDamageTick = 0
+    private var inLiquid = false
 
     override fun shouldExecute() = true
 
@@ -293,18 +314,39 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     private fun attackTarget() {
         val fakePlayer = clientInstance.fakePlayer
         nextClick = (timeMillis() + fakePlayer.random.nextGaussian(meanDelay.toDouble(), deviation.toDouble())).toLong()
-        pressButton(25, MouseButton.Type.LEFT_CLICK)
+        target?.let {
+            if (fakePlayer.distance3DTo(it) <= 5) {
+                pressButton(25, MouseButton.Type.LEFT_CLICK)
+            }
+        }
     }
 
-    private var resetType = ResetType.OFFENSIVE
-    private val lastResetType = ResetType.OFFENSIVE
     private var strafeDirection: Byte = 0
+    private var canWtap = false
+    private var canStap = false
 
     private fun strafe() {
         val target = this.target ?: return
 
+        val config = clientInstance.configuration
+
         val fakePlayer = clientInstance.fakePlayer
         val distance = fakePlayer.distance3DTo(target)
+        if (timeMillis() - lastJumpTime > 20 * 1000) {
+            lastJumpTime = clientInstance.currentTick
+            if (distance in 5.0..6.5 && fakePlayer.random.nextFloat() <= config.jumpProbability) {
+                pressKey(100, Key.Type.KEY_SPACE)
+            } else {
+                unpressKey( Key.Type.KEY_SPACE)
+            }
+        }
+
+        if (timeMillis() - lastCheckStapTime > 3 * 20 * 1000) {
+            lastCheckStapTime = timeMillis()
+            canWtap = fakePlayer.random.nextFloat() <= config.wtapProbability
+            canStap = fakePlayer.random.nextFloat() <= 0.5
+        }
+
         if (!fakePlayer.isOnGround || distance > 2.95 /*
                                                          * || timeMillis() -
                                                          * fakePlayer.
@@ -328,6 +370,13 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
                 unpressKey(Key.Type.KEY_A)
                 pressKey(Key.Type.KEY_D)
             }
+            3 -> {
+                unpressKey(Key.Type.KEY_A,Key.Type.KEY_D)
+                if (canWtap && fakePlayer.isOnGround && clientInstance.currentTick - lastTargetDamageTick > 35)  {
+                    unpressKey(150,Key.Type.KEY_W)
+                    if (canStap) pressKey(150,Key.Type.KEY_S)
+                }
+            }
         }
     }
 
@@ -347,7 +396,14 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
 
         // If cross product is positive, player is to the right of the aim direction
         // If cross product is negative, player is to the left of the aim direction
-        return if (crossProduct > 0) 2.toByte() else 1
+
+        val epsilon = 0.6
+
+        return when {
+            crossProduct < -epsilon -> 1 // left
+            crossProduct > epsilon  -> 2 // right
+            else -> 3
+        }
     }
 
     private fun crossProduct2D(vec: DoubleArray, other: DoubleArray): Float {
@@ -358,66 +414,56 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         val target = this.target ?: return
 
         val fakePlayer = clientInstance.fakePlayer
-        val meanX = (fakePlayer.x + target.x) / 2
-        val meanY = (fakePlayer.y + target.y) / 2
-        val meanZ = (fakePlayer.z + target.z) / 2
 
-        // Offensive if dealing more kb to the target
-        val kb = getKB(fakePlayer, meanX, meanY, meanZ)
-        val targetKB = getKB(target, meanX, meanY, meanZ)
+        val distance = fakePlayer.distance3DTo(target)
+        val targetDiffTick = clientInstance.currentTick - lastTargetDamageTick
 
         val inventory = fakePlayer.inventory
         val itemStack = inventory.heldItemStack
-
-        resetType =
-            if (kb < targetKB) if (fakePlayer.isOnGround && kb <= 0) ResetType.EXTRA_OFFENSIVE else ResetType.OFFENSIVE
-            else if (lastResetType == ResetType.DEFENSIVE && itemStack != null && Item.Type.SWORD.isType(itemStack.item.id)) ResetType.EXTRA_DEFENSIVE
-            else ResetType.DEFENSIVE
-
         val config = clientInstance.configuration
 
+        val resetType =
+            if (fakePlayer.isOnGround && targetDiffTick > 35) { // combo
+                if (distance <= 2.5) EXTRA_OFFENSIVE
+                else OFFENSIVE
+            } else if (itemStack != null && Item.Type.SWORD.isType(itemStack.item.id)) {
+                if (fakePlayer.random.nextFloat() <= config.sprintResetAccuracy) DEFENSIVE
+                else EXTRA_DEFENSIVE
+            } else DEFENSIVE
+
         when (resetType) {
-            ResetType.EXTRA_OFFENSIVE -> {
+            EXTRA_OFFENSIVE -> {
                 if (config.sprintResetAccuracy >= 1
                     || fakePlayer.random.nextFloat() < config
                         .sprintResetAccuracy
                 ) {
-                    pressKey(150, Key.Type.KEY_S)
-                    unpressKey(150, Key.Type.KEY_W)
+                    unpressKey(200, Key.Type.KEY_W)
+                    pressKey(200, Key.Type.KEY_S)
                 }
             }
 
-            ResetType.OFFENSIVE -> if (config.sprintResetAccuracy >= 1
+            OFFENSIVE -> if (config.sprintResetAccuracy >= 1
                 || fakePlayer.random.nextFloat() < config
                     .sprintResetAccuracy
-            ) unpressKey(150, Key.Type.KEY_W)
+            ) {
+                unpressKey(300, Key.Type.KEY_W)
+            }
 
-            ResetType.DEFENSIVE -> if (config.sprintResetAccuracy >= 1
+            DEFENSIVE -> if (config.sprintResetAccuracy >= 1
                 || fakePlayer.random.nextFloat() < config
                     .sprintResetAccuracy
-            ) unpressKey(100, Key.Type.KEY_W)
+            ) {
+                unpressKey(150, Key.Type.KEY_W)
+            }
 
-            ResetType.EXTRA_DEFENSIVE -> if (config.sprintResetAccuracy >= 1
+            EXTRA_DEFENSIVE -> if (config.sprintResetAccuracy >= 1
                 || fakePlayer.random.nextFloat() < config
                     .sprintResetAccuracy
-            ) pressButton(75, MouseButton.Type.RIGHT_CLICK)
+            ) {
+                pressButton(150, MouseButton.Type.RIGHT_CLICK)
+            }
+
         }
-    }
-
-    private fun getKB(entity: ClientLivingEntity, meanX: Double, meanY: Double, meanZ: Double): Double {
-        val motX = entity.x - entity.lastX
-        val motY = entity.y - entity.lastY
-        val motZ = entity.z - entity.lastZ
-
-        val newX = entity.x + motX
-        val newY = entity.y + motY
-        val newZ = entity.z + motZ
-
-        val kbX = newX - meanX
-        val kbY = newY - meanY
-        val kbZ = newZ - meanZ
-
-        return sqrt(kbX * kbX + kbY * kbY + kbZ * kbZ)
     }
 
     internal enum class ResetType {
@@ -444,13 +490,20 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     }
 
     override fun onTick(tick: Tick) {
-
-        pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-
+        findTarget()
 
         val meleeWeaponSlot = getBestMeleeWeaponSlot()
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory
+
+        if (target != null && clientInstance.currentTick - lastAstarFindPathTick > 19) {
+            lastAstarFindPathTick = clientInstance.currentTick
+            currentNodeIndex = 0
+            currentPath = Astar(fakePlayer.world).compute(
+                Pos(floor(fakePlayer.x), floor(fakePlayer.y), floor(fakePlayer.z)),
+                Pos(floor(target!!.x), floor(target!!.y), floor(target!!.z))
+            )
+        }
 
         tick.prerequisite("In Hotbar", meleeWeaponSlot <= 8) {
             moveItemToHotbar(meleeWeaponSlot, inventory)
@@ -459,7 +512,7 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
             pressKey(
                 10,
-                Key.Type.KEY_ESCAPE
+                Key.Type.KEY_E
             )
         }
 
@@ -467,9 +520,82 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
             pressKey(10, Key.Type.valueOf("KEY_" + (meleeWeaponSlot + 1)))
         }
 
+
         tick.execute {
-            findTarget()
-            aimAtTarget()
+            if (currentPath.size - currentNodeIndex <= 5) {
+                aimAtTarget()
+                pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+                return@execute
+            }
+            // 确保路径有效且还有节点要走
+            if (currentPath.isNotEmpty() && currentNodeIndex < currentPath.size) {
+
+                // ==========================================
+                // 1. 动态节点剔除 (解决“走过头”原地打转的问题)
+                // ==========================================
+                while (currentNodeIndex < currentPath.size) {
+                    val node = currentPath[currentNodeIndex]
+                    // 【关键修改】目标点必须 +0.5，对齐方块中心！
+                    val targetX = node.x + 0.5
+                    val targetZ = node.z + 0.5
+
+                    // 【关键修改】计算 2D 平面距离的平方 (忽略高度差Y)
+                    val dx = targetX - fakePlayer.x
+                    val dz = targetZ - fakePlayer.z
+                    val distSq2D = dx * dx + dz * dz
+
+                    // 如果水平距离小于 1.5 格 (1.5 * 1.5 = 2.25)，说明触达该节点，直接切换下一个！
+                    if (distSq2D <= 2.25) {
+                        currentNodeIndex++
+                    } else {
+                        // 还没走到当前节点，跳出循环，继续往这个节点走
+                        break
+                    }
+                }
+
+                // ==========================================
+                // 2. 丝滑移动与朝向控制 (解决“摇头晃脑”的问题)
+                // ==========================================
+                if (currentNodeIndex < currentPath.size) {
+                    // 前瞻机制 (Lookahead)：视角看向下一个节点，让走位更圆滑，而不是死板的折线
+                    val lookAheadIndex = minOf(currentNodeIndex + 1, currentPath.size - 1)
+                    val aimNode = currentPath[lookAheadIndex]
+                    val aimX = aimNode.x + 0.5
+                    val aimZ = aimNode.z + 0.5
+
+                    // 纯手工计算 Yaw (偏航角)，基于前瞻节点
+                    val aimDx = aimX - fakePlayer.x
+                    val aimDz = aimZ - fakePlayer.z
+                    // Minecraft 的 Yaw 计算公式：-atan2(x, z) 转换为角度
+                    val optimalYaw = Math.toDegrees(-Math.atan2(aimDx, aimDz)).toFloat()
+
+                    // 【平滑插值】计算需要转多少度
+                    val yawDiff = angleDifference(fakePlayer.yaw, optimalYaw).toFloat()
+
+                    // 核心魔法：只转动差值的 40% (系数可调 0.1~1.0)，实现人类视角的丝滑转动
+                    val smoothYaw = fakePlayer.yaw + (yawDiff * 0.4f)
+                    setMouseYaw(smoothYaw)
+
+                    // 【独立 Pitch 控制】
+                    // 寻路时千万不要把 Pitch 看向地板上的寻路节点，这会导致上下楼梯时疯狂点头！
+                    if (target != null) {
+                        // 如果有目标，准星高度看向敌人
+                        val pitch = computeOptimalYawAndPitch(fakePlayer, NextPos(target!!.x, target!!.y + 1.0, target!!.z))[0]
+                        setMousePitch(pitch)
+                    } else {
+                        // 没有目标时，平视前方
+                        setMousePitch(0f)
+                    }
+
+                    // 【关键修改】无论视角差多少，只要在路上，就一直按住 W 和 Sprint，绝对不急刹车！
+                    pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+
+                } else {
+                    unpressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+                }
+            } else {
+                unpressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+            }
         }
 
         if (this.target == null && timeMillis() - lastBounceTime > 1000) if (isCollidingWithWall) reflectOffWall()
@@ -481,14 +607,15 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     }
 
     fun onEntityHurt(event: EntityHurtEvent): Boolean {
-        if (clientInstance.currentTick - lastSprintResetTick < 9) return false
-
         val entity = event.attackedEntity
-
         val fakePlayer = clientInstance.fakePlayer
-        if (entity.y - fakePlayer.y > 1.5) return false
-
         val target = this.target
+
+        lastHurtEntity = entity.uuid
+        if (entity.uuid == fakePlayer.uuid) lastTargetDamageTick = clientInstance.currentTick
+        if (target != null && entity.uuid == target.uuid) lastSelfDamageTick = clientInstance.currentTick
+
+        if (clientInstance.currentTick - lastSprintResetTick < 9) return false
 
         if (target != null && entity.uuid == target.uuid) {
             sprintReset()
@@ -500,6 +627,37 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
 
     public override fun onGameLoop() {
         strafe()
+        move()
         if (timeMillis() >= nextClick) attackTarget()
+    }
+
+    private fun move() {
+        val fakePlayer = clientInstance.fakePlayer
+        val world = fakePlayer.world
+
+        val dir = vectorForRotation(0f, fakePlayer.yaw)
+        val nextX = fakePlayer.x + dir[0] * 0.75
+        val nextZ = fakePlayer.z + dir[2] * 0.75
+
+        val nextFeetBlock = world.getBlockAt(nextX, fakePlayer.y, nextZ).id
+        val nextHeadBlock = world.getBlockAt(nextX, fakePlayer.y + 1.0, nextZ).id
+        val groundAhead = world.getBlockAt(nextX, fakePlayer.y - 1.0, nextZ).id
+        val feetBlock = world.getBlockAt(fakePlayer.x, fakePlayer.y, fakePlayer.z).id
+
+        if (Block.Type.LIQUID.isType(feetBlock)) {
+            inLiquid = true
+            pressKey(Key.Type.KEY_SPACE)
+        } else if (inLiquid){
+            inLiquid = false
+            unpressKey(Key.Type.KEY_SPACE)
+        }
+        if (Block.Type.DANGEROUS.isType(groundAhead)) {
+            keyboardStopAll()
+        }
+
+        // Auto-jump on small ledges / one-block highs, but not on carpet/snow-layer micro-steps.
+        if (!Block.Type.PASSABLE.isType(nextFeetBlock)  && !Block.Type.UNPASSABLE.isType(nextFeetBlock) && Block.Type.PASSABLE.isType(nextHeadBlock) && fakePlayer.isOnGround) {
+            pressKey(100, Key.Type.KEY_SPACE)
+        }
     }
 }

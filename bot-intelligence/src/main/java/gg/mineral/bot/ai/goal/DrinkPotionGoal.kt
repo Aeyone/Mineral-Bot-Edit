@@ -14,12 +14,16 @@ import gg.mineral.bot.api.inv.item.Item
 import gg.mineral.bot.api.inv.item.ItemStack
 import gg.mineral.bot.api.inv.potion.Potion
 import gg.mineral.bot.api.screen.type.ContainerScreen
+import kotlin.random.Random
+import kotlin.random.nextInt
 
 class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance), Sporadic, Timebound {
     override var executing: Boolean = false
     override var startTime: Long = 0
     override val maxDuration: Long = 100
     private var drinking = false
+    private var cancelDrinkingTick = 0
+    private var random = 0
 
     override fun shouldExecute(): Boolean {
         val shouldExecute = canSeeEnemy() && hasDrinkablePotion()
@@ -28,7 +32,11 @@ class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     }
 
     override fun onStart() {
-        pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+        random = Random.nextInt(0..1)
+        logger.info("drink potion goal type : $random")
+        cancelDrinkingTick = clientInstance.currentTick
+        keyboardStopAll()
+        pressKey(100, Key.Type.KEY_SPACE)
         unpressKey(Key.Type.KEY_S, Key.Type.KEY_A, Key.Type.KEY_D)
     }
 
@@ -120,6 +128,22 @@ class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         return potionSlot
     }
 
+    private fun safeDrinkPotion() {
+        if (distanceAwayFromEnemies() < 16) {
+            when (random) {
+                0 -> {
+                     setMouseYaw(angleAwayFromEnemies())
+                     pressKey(Key.Type.KEY_SPACE, Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+                }
+                1 -> {
+                     setMouseYaw(angleAwayFromEnemies() + 180)
+                     unpressKey(Key.Type.KEY_W)
+                     pressKey(Key.Type.KEY_S)
+                }
+            }
+        }
+    }
+
     override fun onTick(tick: Tick) {
         val potionSlot = getPotionSlot()
         val fakePlayer = clientInstance.fakePlayer
@@ -134,7 +158,7 @@ class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         tick.prerequisite(
             "Inventory Closed",
             clientInstance.currentScreen !is ContainerScreen
-        ) { pressKey(10, Key.Type.KEY_ESCAPE) }
+        ) { pressKey(10, Key.Type.KEY_E) }
 
         tick.prerequisite("Correct Hotbar Slot Selected", inventory.heldSlot == potionSlot) {
             pressKey(10, Key.Type.valueOf("KEY_" + (potionSlot + 1)))
@@ -144,23 +168,27 @@ class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
 
         tick.finishIf("Potion Not Needed", !shouldExecute())
 
+        tick.prerequisite("Maintain a safe distance", distanceAwayFromEnemies() > 6.0 || (clientInstance.currentTick - cancelDrinkingTick >= 20)) {
+            safeDrinkPotion()
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+            drinking = false
+        }
+
         tick.prerequisite("Drinking", drinking && getButton(MouseButton.Type.RIGHT_CLICK).isPressed) {
             pressButton(MouseButton.Type.RIGHT_CLICK)
             drinking = true
         }
 
         tick.execute {
-            if (distanceAwayFromEnemies() < 16) {
-                setMouseYaw(angleAwayFromEnemies())
-                pressKey(Key.Type.KEY_SPACE, Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-            }
+            safeDrinkPotion()
         }
     }
 
     override fun onEnd() {
         drinking = false
         unpressButton(MouseButton.Type.RIGHT_CLICK)
-        unpressKey(Key.Type.KEY_SPACE)
+        keyboardStopAll()
+        pressKey( Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
     }
 
     override fun onEvent(event: Event): Boolean {

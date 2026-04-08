@@ -1,0 +1,5 @@
+name: MineralBot
+version: 1.0
+main: net.aeyone.bot.bukkit.MineralBotPlugin
+author: aeyone
+description: Mineral Bot Plugin

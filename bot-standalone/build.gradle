@@ -12,8 +12,10 @@ dependencies {
     implementation 'org.apache.logging.log4j:log4j-api:2.25.3'
     implementation 'org.apache.logging.log4j:log4j-core:2.25.3'
     implementation project(':bot-base-client')
+    implementation project(':bot-intelligence')
     compileOnly project(':bot-api')
     compileOnly project(':bot-shared-library')
+//    compileOnly project(':bot-intelligence')
     compileOnly 'com.google.guava:guava:33.5.0-jre'
     implementation 'org.jline:jline:3.30.6'
     implementation 'io.netty:netty-all:4.2.9.Final'
@@ -32,6 +34,9 @@ jar {
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
 }
 kotlin {
     jvmToolchain(17)

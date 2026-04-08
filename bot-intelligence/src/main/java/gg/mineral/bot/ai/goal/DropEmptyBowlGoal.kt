@@ -104,7 +104,7 @@ class DropEmptyBowlGoal(clientInstance: ClientInstance) : Goal(clientInstance), 
         tick.finishIf("Bowl is not in Hotbar", bowlSlot == -1)
 
         tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
-            pressKey(Key.Type.KEY_ESCAPE)
+            pressKey(Key.Type.KEY_E)
         }
 
         tick.prerequisite("Switch to Bowl Slot", inventory.heldSlot == bowlSlot) {

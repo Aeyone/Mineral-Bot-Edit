@@ -21,9 +21,11 @@ import gg.mineral.bot.api.screen.Screen
 import gg.mineral.bot.api.world.ClientWorld
 import gg.mineral.bot.api.world.block.Block
 import gg.mineral.bot.base.client.manager.InstanceManager
+import gg.mineral.bot.base.client.player.FakePlayerAdapter
 import gg.mineral.bot.impl.thread.ThreadManager
 import it.unimi.dsi.fastutil.objects.ObjectLinkedOpenHashSet
 import net.minecraft.client.Minecraft
+import net.minecraft.client.entity.EntityClientPlayerMP
 import net.minecraft.client.gui.GuiScreen
 import net.minecraft.client.multiplayer.WorldClient
 import net.minecraft.util.Session
@@ -34,6 +36,7 @@ import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.ScheduledExecutorService
+import kotlin.math.log
 
 open class ClientInstance(
     override val configuration: BotConfiguration,
@@ -215,6 +218,12 @@ open class ClientInstance(
             }
         }
     }
+    fun clearGoals() {
+        for (goal in goals) {
+            goal.stop();
+        }
+        this.goals.clear();
+    }
 
     override fun shutdownMinecraftApplet() {
         if (InstanceManager.instances.remove(configuration.uuid) != null)
@@ -246,8 +255,8 @@ open class ClientInstance(
     override val fakePlayer: FakePlayer
         get() {
             val player = thePlayer
-            if (player is FakePlayer) {
-                return player
+            if (player is EntityClientPlayerMP) {
+                return FakePlayerAdapter(this, player);
             }
             // If the player is not an instance of FakePlayer, return a default FakePlayer.
             return object : FakePlayer {

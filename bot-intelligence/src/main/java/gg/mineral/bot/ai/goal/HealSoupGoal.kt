@@ -101,7 +101,7 @@ class HealSoupGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstanc
         tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
             pressKey(
                 10,
-                Key.Type.KEY_ESCAPE
+                Key.Type.KEY_E
             )
         }
 

@@ -90,14 +90,16 @@ interface MathUtil {
         return floatArrayOf(newPitch, newYaw)
     }
 
-    fun computeOptimalYaw(entity: ClientLivingEntity, target: Positionable): Float {
+    fun computeOptimalYawAndPitch(entity: ClientLivingEntity, target: Positionable): FloatArray {
         val x = target.x - entity.x
+        val y = target.y - entity.y
         val z = target.z - entity.z
+        val newPitch = if (y != 0.0) -toDegrees(fastArcTan(y / sqrt(x * x + z * z))).toFloat() else 0f
         val newYaw = if (z < 0.0 && x < 0.0) (90.0 + toDegrees(fastArcTan(z / x))).toFloat()
         else if (z < 0.0 && x > 0.0) (-90.0 + toDegrees(fastArcTan(z / x))).toFloat()
         else toDegrees(-fastArcTan(x / z)).toFloat()
 
-        return newYaw
+        return floatArrayOf(newPitch, newYaw)
     }
 
     fun min(a: Float, b: Float): Float {
@@ -116,6 +118,9 @@ interface MathUtil {
         return kotlin.math.max(a, b)
     }
 
+    fun min(a: Int, b: Int): Int {
+        return kotlin.math.min(a, b)
+    }
     fun min(a: Long, b: Long): Long {
         return kotlin.math.min(a.toDouble(), b.toDouble()).toLong()
     }
@@ -125,6 +130,10 @@ interface MathUtil {
     }
 
     fun abs(a: Double): Double {
+        return kotlin.math.abs(a)
+    }
+
+    fun abs(a: Int): Int {
         return kotlin.math.abs(a)
     }
 
@@ -197,6 +206,12 @@ interface MathUtil {
      */
     fun lowInt(value: Long): Int {
         return value.toInt()
+    }
+
+    fun distanceXZ(dx: Int, dz: Int): Double {
+        val dx = abs(dx)
+        val dz = abs(dz)
+        return sqrt (2.0) * abs(dx - dz) + min(dx, dz)
     }
 
     companion object {

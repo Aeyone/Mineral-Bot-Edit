@@ -74,7 +74,7 @@ class ReplaceArmorGoal(clientInstance: ClientInstance) : InventoryGoal(clientIns
         }
 
         tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
-            pressKey(10, Key.Type.KEY_ESCAPE)
+            pressKey(10, Key.Type.KEY_E)
         }
 
         tick.prerequisite("Correct Hotbar Slot Selected", inventory.heldSlot == armorSlot) {

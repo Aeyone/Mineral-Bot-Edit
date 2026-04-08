@@ -157,6 +157,7 @@ abstract class BotImpl : BotAPI() {
         }
 
     companion object {
+        @JvmStatic
         fun init() {
             INSTANCE = object : BotImpl() {
                 override fun spawn(

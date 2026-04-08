@@ -22,6 +22,7 @@ abstract class Goal(protected val clientInstance: ClientInstance) : MathUtil {
     private var delayedTasks: Queue<DelayedTask> = ConcurrentLinkedQueue()
     protected val asyncTasks = ConcurrentHashMap<Int, AsyncTickTask<*>>()
     var tickCount = 0
+    @Volatile private var stopped = false
 
     @JvmRecord
     data class DelayedTask(val runnable: Runnable, val sendTime: Long) {
@@ -121,6 +122,7 @@ abstract class Goal(protected val clientInstance: ClientInstance) : MathUtil {
     protected abstract fun shouldExecute(): Boolean
 
     fun callTick() {
+        if (stopped) return
         logger.debug("callTick called of ${this.javaClass.simpleName}")
         /*if (this is Timebound) {
             if (timeMillis() - startTime >= maxDuration) {
@@ -243,6 +245,7 @@ abstract class Goal(protected val clientInstance: ClientInstance) : MathUtil {
     }
 
     fun callGameLoop() {
+        if (stopped) return
         if (!::thread.isInitialized) thread = Thread.currentThread()
 
         this.onGameLoop()
@@ -255,6 +258,19 @@ abstract class Goal(protected val clientInstance: ClientInstance) : MathUtil {
             }
 
             break
+        }
+    }
+
+    fun stop() {
+        if (stopped) return
+        stopped = true
+
+        logger.debug("Stopping goal: ${this.javaClass.simpleName}")
+        stopAll()
+        delayedTasks.clear()
+        asyncTasks.clear()
+        if (this is Sporadic) {
+            callEnd()
         }
     }
 

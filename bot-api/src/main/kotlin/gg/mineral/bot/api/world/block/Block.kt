@@ -11,6 +11,83 @@ interface Block {
      */
     val id: Int
 
+    enum class Type(private vararg val ids: Int) {
+
+        PASSABLE(
+            AIR,
+            // ===== 植物 =====
+            TALL_GRASS,
+            DEAD_BUSH,
+            DANDELION,
+            POPPY,
+            BROWN_MUSHROOM,
+            RED_MUSHROOM,
+            DOUBLE_PLANT,
+
+            // ===== 作物 =====
+            CROPS,
+            CARROTS,
+            POTATOES,
+            NETHER_WART,
+            SUGAR_CANE,
+            PUMPKIN_STEM,
+            MELON_STEM,
+
+            // ===== 薄层 =====
+            SNOW_LAYER,
+            CARPET,
+            LILY_PAD,
+
+            // ===== 红石类 =====
+            REDSTONE_WIRE,
+            TRIPWIRE,
+
+            // ===== 火把/装饰 =====
+            TORCH,
+            REDSTONE_TORCH,
+            UNLIT_REDSTONE_TORCH,
+
+            // ===== 可附着物 =====
+            LADDER,
+            VINE,
+            WALL_SIGN,
+            STANDING_SIGN,
+            FLOWER_POT,
+
+            // ===== 特殊可进入 =====
+            NETHER_PORTAL,
+            FIRE,
+            COBWEB
+        ),
+        LIQUID(
+            WATER_FLOWING,
+            WATER_STILL,
+            LAVA_FLOWING,
+            LAVA_STILL,
+        ),
+        CLIMBABLE(
+            LADDER,
+            VINE
+        ),
+        DANGEROUS(
+            FIRE,
+            COBWEB,
+            LAVA_FLOWING,
+            LAVA_STILL
+        ),
+        UNPASSABLE(
+            FENCE,
+            FENCE_GATE,
+            NETHER_BRICK_FENCE
+        );
+
+        fun isType(id: Int): Boolean {
+            for (i in ids.indices)
+                if (ids[i] == id) return true
+            return false
+        }
+    }
+
     /**
      * Returns the bounding box of the block at the specified coordinates.
      *

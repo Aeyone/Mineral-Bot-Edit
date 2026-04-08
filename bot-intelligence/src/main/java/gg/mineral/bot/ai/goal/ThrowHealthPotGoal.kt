@@ -115,7 +115,7 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
         if (healthSlot <= 8) {
             // Close inventory if open
             tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
-                pressKey(10, Key.Type.KEY_ESCAPE)
+                pressKey(10, Key.Type.KEY_E)
             }
 
             // Select the potion
@@ -350,7 +350,7 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
 
     override fun onEnd() {
         if (clientInstance.currentScreen is ContainerScreen)
-            pressKey(10, Key.Type.KEY_ESCAPE)
+            pressKey(10, Key.Type.KEY_E)
         healthRegression.clear()
         // Restore normal movement
         unpressKey(Key.Type.KEY_S)

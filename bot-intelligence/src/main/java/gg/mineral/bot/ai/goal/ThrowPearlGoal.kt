@@ -42,6 +42,7 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
         get() = clientInstance.currentScreen !is ContainerScreen && !shouldExecute()
     override val maxDuration: Long = 100
     private var lastPearledTick = 0
+    private var lastSeeEnemyTick = 0
 
 
     private enum class Type : MathUtil {
@@ -84,7 +85,10 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
     }
 
     override fun shouldExecute(): Boolean {
-        if (!canSeeEnemy() || clientInstance.currentTick - lastPearledTick < 20 * clientInstance.configuration.pearlCooldown) return false
+        var canSeeEnemy = canSeeEnemy()
+        if (!canSeeEnemy) lastSeeEnemyTick = clientInstance.currentTick
+        if (!canSeeEnemy || clientInstance.currentTick - lastPearledTick < 20 * clientInstance.configuration.pearlCooldown) return false
+        if (clientInstance.currentTick - lastSeeEnemyTick < 20 * clientInstance.configuration.pearlCooldown) return false
 
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory
@@ -104,6 +108,7 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
     }
 
     override fun onStart() {
+        logger.info("ender pearl goal start.")
     }
 
     private fun canSeeEnemy(): Boolean {
@@ -162,7 +167,7 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
         tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
             pressKey(
                 10,
-                Key.Type.KEY_ESCAPE
+                Key.Type.KEY_E
             )
         }
 

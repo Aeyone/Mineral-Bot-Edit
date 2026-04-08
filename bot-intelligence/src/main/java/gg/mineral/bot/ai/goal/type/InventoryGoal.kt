@@ -15,7 +15,7 @@ abstract class InventoryGoal(clientInstance: ClientInstance) : Goal(clientInstan
         val inventoryContainer = fakePlayer.inventoryContainer
 
         val slot = inventoryContainer.getSlot(inventory, index) ?: run {
-            pressKey(10, Key.Type.KEY_ESCAPE)
+            pressKey(10, Key.Type.KEY_E)
             return logger.debug("Slot is null; closing inventory")
         }
 

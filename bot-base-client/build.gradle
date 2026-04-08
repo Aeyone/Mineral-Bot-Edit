@@ -14,7 +14,7 @@ dependencies {
     compileOnly project(':bot-api')
     implementation project(':bot-lwjgl-bridge')
     implementation project(':bot-shared-library')
-    implementation project(':bot-intelligence')
+//    implementation project(':bot-intelligence')
     compileOnly 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2'
     compileOnly 'org.projectlombok:lombok:1.18.42'
     annotationProcessor 'org.projectlombok:lombok:1.18.42'

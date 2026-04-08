@@ -36,7 +36,9 @@ data class BotConfiguration(
     var debug: Boolean = false,
     var disableEntityCollisions: Boolean = true,
     var friendlyUUIDs: MutableSet<UUID> = BotAPI.INSTANCE.collections().newSet(),
-    var potAccuracy: Double = 0.5
+    var potAccuracy: Double = 0.5,
+    var jumpProbability : Float = 0.1f,
+    var wtapProbability : Float = 0.5f
 ) {
     val fullUsername: String
         get() = "$usernamePrefix$username$usernameSuffix"
@@ -81,6 +83,8 @@ data class BotConfiguration(
             private var disableEntityCollisions: Boolean = true
             private var friendlyUUIDs: MutableSet<UUID> = BotAPI.INSTANCE.collections().newSet()
             private var potAccuracy: Double = 0.5
+            private var jumpProbability : Float = 0.1f
+            private var wtapProbability : Float = 0.5f
 
             fun username(username: String) = apply { this.username = username }
             fun usernamePrefix(usernamePrefix: String) = apply { this.usernamePrefix = usernamePrefix }
@@ -132,6 +136,8 @@ data class BotConfiguration(
             fun predictionHorizon(predictionHorizon: Int) = apply { this.predictionHorizon = predictionHorizon }
             fun disableEntityCollisions(disableEntityCollisions: Boolean) =
                 apply { this.disableEntityCollisions = disableEntityCollisions }
+            fun jumpProbability(jumpProbability : Float) = apply { this.jumpProbability = jumpProbability }
+            fun wtapProbability(wtapProbability : Float) = apply { this.wtapProbability = wtapProbability }
 
             fun build() = BotConfiguration(
                 username,
@@ -164,7 +170,9 @@ data class BotConfiguration(
                 debug,
                 disableEntityCollisions,
                 friendlyUUIDs,
-                potAccuracy
+                potAccuracy,
+                jumpProbability,
+                wtapProbability
             )
         }
     }

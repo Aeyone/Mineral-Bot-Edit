@@ -11,12 +11,16 @@ import gg.mineral.bot.api.goal.Timebound
 import gg.mineral.bot.api.instance.ClientInstance
 import gg.mineral.bot.api.inv.item.Item
 import gg.mineral.bot.api.screen.type.ContainerScreen
+import kotlin.random.Random
+import kotlin.random.nextInt
 
 class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance), Sporadic, Timebound {
     override var executing: Boolean = false
     override var startTime: Long = 0
     override val maxDuration: Long = 100
     private var eating = false
+    private var cancelEatingTick = 0
+    private var random = 0
 
     override fun shouldExecute(): Boolean {
         val fakePlayer = clientInstance.fakePlayer
@@ -27,8 +31,11 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
     }
 
     override fun onStart() {
-        pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-        unpressKey(Key.Type.KEY_S, Key.Type.KEY_A, Key.Type.KEY_D)
+        random = Random.nextInt(0..1)
+        logger.info("eat food goal type : $random")
+        cancelEatingTick = clientInstance.currentTick
+        keyboardStopAll()
+        pressKey(100, Key.Type.KEY_SPACE)
     }
 
     init {
@@ -92,6 +99,22 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
         return foodSlot
     }
 
+    private fun safeEatFood() {
+        if (distanceAwayFromEnemies() < 16) {
+            when (random) {
+                0 -> {
+                     setMouseYaw(angleAwayFromEnemies())
+                     pressKey(Key.Type.KEY_SPACE, Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+                }
+                1 -> {
+                     setMouseYaw(angleAwayFromEnemies() + 180)
+                     unpressKey(Key.Type.KEY_W)
+                     pressKey(Key.Type.KEY_S)
+                }
+            }
+        }
+    }
+
     override fun onTick(tick: Tick) {
         val foodSlot = getFoodSlot()
         val fakePlayer = clientInstance.fakePlayer
@@ -108,7 +131,7 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
         tick.prerequisite("Inventory Closed", clientInstance.currentScreen !is ContainerScreen) {
             pressKey(
                 10,
-                Key.Type.KEY_ESCAPE
+                Key.Type.KEY_E
             )
         }
 
@@ -116,9 +139,13 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
             pressKey(10, Key.Type.valueOf("KEY_" + (foodSlot + 1)))
         }
 
-        tick.finishIf(
-            "Not Holding Valid Food",
-            inventory.heldItemStack?.let { Item.Type.FOOD.isType(it.item.id) } == false)
+        tick.finishIf("Not Holding Valid Food", inventory.heldItemStack?.let { Item.Type.FOOD.isType(it.item.id) } == false)
+
+        tick.prerequisite("Maintain a safe distance", distanceAwayFromEnemies() > 6.0 || (clientInstance.currentTick - cancelEatingTick >= 20)) {
+            safeEatFood()
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+            eating = false
+        }
 
         tick.prerequisite("Eating", eating && getButton(MouseButton.Type.RIGHT_CLICK).isPressed) {
             pressButton(MouseButton.Type.RIGHT_CLICK)
@@ -126,17 +153,15 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
         }
 
         tick.execute {
-            if (distanceAwayFromEnemies() < 16) {
-                setMouseYaw(angleAwayFromEnemies())
-                pressKey(Key.Type.KEY_SPACE, Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-            }
+            safeEatFood()
         }
     }
 
     override fun onEnd() {
         eating = false
         unpressButton(MouseButton.Type.RIGHT_CLICK)
-        unpressKey(Key.Type.KEY_SPACE)
+        keyboardStopAll()
+        pressKey( Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
     }
 
     override fun onEvent(event: Event): Boolean {
