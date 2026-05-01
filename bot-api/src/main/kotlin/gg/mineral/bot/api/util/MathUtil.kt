@@ -121,6 +121,11 @@ interface MathUtil {
     fun min(a: Int, b: Int): Int {
         return kotlin.math.min(a, b)
     }
+
+    fun max(a: Int, b: Int): Int {
+        return kotlin.math.max(a, b)
+    }
+
     fun min(a: Long, b: Long): Long {
         return kotlin.math.min(a.toDouble(), b.toDouble()).toLong()
     }

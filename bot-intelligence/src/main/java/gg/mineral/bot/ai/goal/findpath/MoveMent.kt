@@ -6,6 +6,7 @@ import net.minecraft.client.multiplayer.WorldClient
 import gg.mineral.bot.api.world.block.Block
 import net.minecraft.entity.EntityLivingBase
 import net.minecraft.util.AxisAlignedBB
+import kotlin.math.pow
 
 
 class MoveMent(
@@ -101,15 +102,19 @@ class MoveMent(
     }
 
     fun heuristic(a: Pos, b: Pos): Double {
-        val dx = a.x - b.x
-        val dz = a.z - b.z
-        return distanceXZ(dx, dz) + abs(a.y - b.y)
+        val dx = abs(a.x - b.x)
+        val dy = abs(a.y - b.y)
+        val dz = abs(a.z - b.z)
+        return dy + max(dx, dz) + (2.0.pow(0.5) - 1.0) * min(dx, dz)
     }
 
     fun movementCost(from: Pos, to: Pos): Double {
-        var cost = walkCost
-
+        val dx = to.x - from.x
         val dy = to.y - from.y
+        val dz = to.z - from.z
+
+        var cost = walkCost * distanceXZ(dx, dz)
+
         if (dy > 0) cost += jumpCost
         if (dy < 0) cost += dropCost * abs(dy)
 

@@ -5,6 +5,7 @@ build
 run
 logs
 .kotlin
+.codex
 optionsof.txt
 options,txt
 natives

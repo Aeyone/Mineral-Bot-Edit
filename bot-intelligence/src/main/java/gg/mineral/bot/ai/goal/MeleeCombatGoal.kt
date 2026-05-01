@@ -17,7 +17,6 @@ import gg.mineral.bot.api.screen.type.ContainerScreen
 import gg.mineral.bot.api.world.block.Block
 import gg.mineral.bot.api.math.Positionable
 import java.util.UUID
-import kotlin.math.PI
 
 class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance) {
     data class NextPos(
@@ -42,12 +41,17 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     private var currentPath : List<Pos> = ArrayList()
     private var currentNodeIndex = 0
     private var lastAstarFindPathTick = 0
-    private var lastJumpTime = 0
+    private var lastJumpTime: Long = 0
     private var lastCheckStapTime: Long = 0
     private var lastHurtEntity: UUID = clientInstance.fakePlayer.uuid
     private var lastTargetDamageTick = 0
     private var lastSelfDamageTick = 0
     private var inLiquid = false
+    private var pathLookAheadNodes = 3
+    private var lastArrivedNodeTime : Long = 0
+    private var lastSwitchAheadTime : Long = 0
+    private var lastTargetPos : Pos = Pos(0, 0, 0)
+    private val pathTurnSpeed = 18.0f
 
     override fun shouldExecute() = true
 
@@ -314,10 +318,8 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     private fun attackTarget() {
         val fakePlayer = clientInstance.fakePlayer
         nextClick = (timeMillis() + fakePlayer.random.nextGaussian(meanDelay.toDouble(), deviation.toDouble())).toLong()
-        target?.let {
-            if (fakePlayer.distance3DTo(it) <= 5) {
-                pressButton(25, MouseButton.Type.LEFT_CLICK)
-            }
+        if (target != null && fakePlayer.distance3DTo(target!!) <= 6) {
+            pressButton(25, MouseButton.Type.LEFT_CLICK)
         }
     }
 
@@ -326,6 +328,11 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     private var canStap = false
 
     private fun strafe() {
+        if (isPathFollowingActive()) {
+            unpressKey(Key.Type.KEY_A, Key.Type.KEY_D, Key.Type.KEY_S)
+            return
+        }
+
         val target = this.target ?: return
 
         val config = clientInstance.configuration
@@ -333,7 +340,7 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         val fakePlayer = clientInstance.fakePlayer
         val distance = fakePlayer.distance3DTo(target)
         if (timeMillis() - lastJumpTime > 20 * 1000) {
-            lastJumpTime = clientInstance.currentTick
+            lastJumpTime = timeMillis()
             if (distance in 5.0..6.5 && fakePlayer.random.nextFloat() <= config.jumpProbability) {
                 pressKey(100, Key.Type.KEY_SPACE)
             } else {
@@ -490,20 +497,8 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     }
 
     override fun onTick(tick: Tick) {
-        findTarget()
-
         val meleeWeaponSlot = getBestMeleeWeaponSlot()
-        val fakePlayer = clientInstance.fakePlayer
-        val inventory = fakePlayer.inventory
-
-        if (target != null && clientInstance.currentTick - lastAstarFindPathTick > 19) {
-            lastAstarFindPathTick = clientInstance.currentTick
-            currentNodeIndex = 0
-            currentPath = Astar(fakePlayer.world).compute(
-                Pos(floor(fakePlayer.x), floor(fakePlayer.y), floor(fakePlayer.z)),
-                Pos(floor(target!!.x), floor(target!!.y), floor(target!!.z))
-            )
-        }
+        val inventory = clientInstance.fakePlayer.inventory
 
         tick.prerequisite("In Hotbar", meleeWeaponSlot <= 8) {
             moveItemToHotbar(meleeWeaponSlot, inventory)
@@ -522,80 +517,20 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
 
 
         tick.execute {
-            if (currentPath.size - currentNodeIndex <= 5) {
-                aimAtTarget()
-                pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+            findTarget()
+            updatePath()
+            if (isPathFollowingActive()) {
                 return@execute
             }
-            // 确保路径有效且还有节点要走
-            if (currentPath.isNotEmpty() && currentNodeIndex < currentPath.size) {
 
-                // ==========================================
-                // 1. 动态节点剔除 (解决“走过头”原地打转的问题)
-                // ==========================================
-                while (currentNodeIndex < currentPath.size) {
-                    val node = currentPath[currentNodeIndex]
-                    // 【关键修改】目标点必须 +0.5，对齐方块中心！
-                    val targetX = node.x + 0.5
-                    val targetZ = node.z + 0.5
-
-                    // 【关键修改】计算 2D 平面距离的平方 (忽略高度差Y)
-                    val dx = targetX - fakePlayer.x
-                    val dz = targetZ - fakePlayer.z
-                    val distSq2D = dx * dx + dz * dz
-
-                    // 如果水平距离小于 1.5 格 (1.5 * 1.5 = 2.25)，说明触达该节点，直接切换下一个！
-                    if (distSq2D <= 2.25) {
-                        currentNodeIndex++
-                    } else {
-                        // 还没走到当前节点，跳出循环，继续往这个节点走
-                        break
-                    }
-                }
-
-                // ==========================================
-                // 2. 丝滑移动与朝向控制 (解决“摇头晃脑”的问题)
-                // ==========================================
-                if (currentNodeIndex < currentPath.size) {
-                    // 前瞻机制 (Lookahead)：视角看向下一个节点，让走位更圆滑，而不是死板的折线
-                    val lookAheadIndex = minOf(currentNodeIndex + 1, currentPath.size - 1)
-                    val aimNode = currentPath[lookAheadIndex]
-                    val aimX = aimNode.x + 0.5
-                    val aimZ = aimNode.z + 0.5
-
-                    // 纯手工计算 Yaw (偏航角)，基于前瞻节点
-                    val aimDx = aimX - fakePlayer.x
-                    val aimDz = aimZ - fakePlayer.z
-                    // Minecraft 的 Yaw 计算公式：-atan2(x, z) 转换为角度
-                    val optimalYaw = Math.toDegrees(-Math.atan2(aimDx, aimDz)).toFloat()
-
-                    // 【平滑插值】计算需要转多少度
-                    val yawDiff = angleDifference(fakePlayer.yaw, optimalYaw).toFloat()
-
-                    // 核心魔法：只转动差值的 40% (系数可调 0.1~1.0)，实现人类视角的丝滑转动
-                    val smoothYaw = fakePlayer.yaw + (yawDiff * 0.4f)
-                    setMouseYaw(smoothYaw)
-
-                    // 【独立 Pitch 控制】
-                    // 寻路时千万不要把 Pitch 看向地板上的寻路节点，这会导致上下楼梯时疯狂点头！
-                    if (target != null) {
-                        // 如果有目标，准星高度看向敌人
-                        val pitch = computeOptimalYawAndPitch(fakePlayer, NextPos(target!!.x, target!!.y + 1.0, target!!.z))[0]
-                        setMousePitch(pitch)
-                    } else {
-                        // 没有目标时，平视前方
-                        setMousePitch(0f)
-                    }
-
-                    // 【关键修改】无论视角差多少，只要在路上，就一直按住 W 和 Sprint，绝对不急刹车！
-                    pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-
-                } else {
-                    unpressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
-                }
-            } else {
-                unpressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+            if (target == null) {
+                unpressKey(Key.Type.KEY_W, Key.Type.KEY_A, Key.Type.KEY_D, Key.Type.KEY_S, Key.Type.KEY_LCONTROL)
+                return@execute
             }
+
+            aimAtTarget()
+            unpressKey(Key.Type.KEY_S)
+            pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
         }
 
         if (this.target == null && timeMillis() - lastBounceTime > 1000) if (isCollidingWithWall) reflectOffWall()
@@ -631,6 +566,53 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         if (timeMillis() >= nextClick) attackTarget()
     }
 
+    private fun isPathFollowingActive(): Boolean {
+        if (currentPath.isEmpty()) {
+            return false
+        }
+        if (currentPath.size - currentNodeIndex > 8) {
+            return true
+        }
+        val lastDamageTick = maxOf(lastSelfDamageTick, lastTargetDamageTick)
+        return clientInstance.currentTick - lastDamageTick > 20 * 3 && timeMillis() - lastArrivedNodeTime > 1000L * 3
+    }
+
+    private fun getPathAimTarget(): NextPos? {
+        if (currentNodeIndex >= currentPath.size) return null
+
+        updatePathLookAheadNodes()
+        val lookAheadIndex = min(currentNodeIndex + pathLookAheadNodes, currentPath.lastIndex)
+
+        val node = currentPath[lookAheadIndex]
+        return NextPos(node.x + 0.5, node.y.toDouble(), node.z + 0.5)
+    }
+
+    private fun updatePathLookAheadNodes() {
+        if (timeMillis() - lastSwitchAheadTime <= 500L) {
+            return
+        }
+        if (timeMillis() - lastArrivedNodeTime >= 1000L * 1 && pathLookAheadNodes > 0) {
+            lastSwitchAheadTime = timeMillis()
+            pathLookAheadNodes --
+        }
+        if (timeMillis() - lastArrivedNodeTime < 1000L * 1 && pathLookAheadNodes < 5) {
+            lastSwitchAheadTime = timeMillis()
+            pathLookAheadNodes ++
+        }
+    }
+
+    private fun lookAtPath() {
+        val fakePlayer = clientInstance.fakePlayer
+        val pathTarget = getPathAimTarget()
+        if (pathTarget != null) {
+            val targetYaw = computeOptimalYawAndPitch(fakePlayer, pathTarget)[1]
+            setMouseYaw(getRotationTarget(fakePlayer.yaw, targetYaw, pathTurnSpeed, 1.0f, 0.0f))
+            setMousePitch(0.0f)
+
+            pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+        }
+    }
+
     private fun move() {
         val fakePlayer = clientInstance.fakePlayer
         val world = fakePlayer.world
@@ -639,10 +621,11 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         val nextX = fakePlayer.x + dir[0] * 0.75
         val nextZ = fakePlayer.z + dir[2] * 0.75
 
-        val nextFeetBlock = world.getBlockAt(nextX, fakePlayer.y, nextZ).id
-        val nextHeadBlock = world.getBlockAt(nextX, fakePlayer.y + 1.0, nextZ).id
         val groundAhead = world.getBlockAt(nextX, fakePlayer.y - 1.0, nextZ).id
         val feetBlock = world.getBlockAt(fakePlayer.x, fakePlayer.y, fakePlayer.z).id
+
+        val box = world.getBlockAt(nextX, fakePlayer.y, nextZ).getCollisionBoundingBox(world, floor(nextX), floor(fakePlayer.y), floor(nextZ))
+        val dy = if (box != null )box.maxY - box.minY else 0.0
 
         if (Block.Type.LIQUID.isType(feetBlock)) {
             inLiquid = true
@@ -655,9 +638,61 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
             keyboardStopAll()
         }
 
-        // Auto-jump on small ledges / one-block highs, but not on carpet/snow-layer micro-steps.
-        if (!Block.Type.PASSABLE.isType(nextFeetBlock)  && !Block.Type.UNPASSABLE.isType(nextFeetBlock) && Block.Type.PASSABLE.isType(nextHeadBlock) && fakePlayer.isOnGround) {
+        if (dy >= 1.0 && fakePlayer.isOnGround) {
             pressKey(100, Key.Type.KEY_SPACE)
         }
+
+        if (currentNodeIndex < currentPath.size) {
+            val node = currentPath[currentNodeIndex]
+            val targetX = node.x + 0.5
+            val targetY = node.y.toDouble()
+            val targetZ = node.z + 0.5
+            val dx = targetX - fakePlayer.x
+            val dy = targetY - fakePlayer.y
+            val dz = targetZ - fakePlayer.z
+
+            if (abs(dx) <= 0.35 && abs(dz) <= 0.35 && abs(dy) < 1.0) {
+                if (currentNodeIndex != 0) {
+                    lastArrivedNodeTime = timeMillis()
+                }
+                currentNodeIndex++
+            }
+        }
+        if (isPathFollowingActive()) {
+            lookAtPath()
+        }
+
+    }
+
+    private fun updatePath() {
+        val currentTarget = target
+        if (currentTarget == null) {
+            currentPath = emptyList()
+            currentNodeIndex = 0
+            return
+        }
+
+        val fakePlayer = clientInstance.fakePlayer
+
+        if (clientInstance.currentTick - lastAstarFindPathTick < 10) return
+        if (!fakePlayer.isOnGround) return
+
+        val startPos = Pos(floor(fakePlayer.x), floor(fakePlayer.y), floor(fakePlayer.z))
+        val goalPos = Pos(floor(currentTarget.x), floor(currentTarget.y), floor(currentTarget.z))
+
+        val dx = goalPos.x - lastTargetPos.x
+        val dy = goalPos.y - lastTargetPos.y
+        val dz = goalPos.z - lastTargetPos.z
+
+        if (distanceXZ(dx, dz) < 1 || dy < 1) return
+
+        lastTargetPos = goalPos
+        lastAstarFindPathTick = clientInstance.currentTick
+
+        currentNodeIndex = 0
+        currentPath = Astar(fakePlayer.world).compute(
+            startPos,
+            goalPos
+        ).dropWhile { it == startPos }
     }
 }

@@ -227,12 +227,12 @@ open class ClientInstance(
 
     override fun shutdownMinecraftApplet() {
         if (InstanceManager.instances.remove(configuration.uuid) != null)
-            logger.debug("Removed instance: {}", configuration.uuid)
+            logger.info("Removed instance: {}", configuration.uuid)
         if (InstanceManager.pendingInstances.remove(configuration.uuid) != null)
-            logger.debug("Removed pending instance: {}", configuration.uuid)
+            logger.info("Removed pending instance: {}", configuration.uuid)
         goals.clear()
         running = false
-        logger.debug("Stopping!")
+        logger.info("Stopping!")
         try {
             loadWorld(null as WorldClient?)
         } catch (e: Throwable) {

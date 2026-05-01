@@ -4,16 +4,11 @@ plugins {
 }
 
 repositories {
-    maven {
-        url 'https://libraries.minecraft.net/'
+    flatDir{
+        dirs 'libs'
     }
     maven {
-        name "mineralDevPrivate"
-        url "https://repo.mineral.gg/private"
-        credentials {
-            username = project.findProperty("gpr.user") ?: System.getenv("USERNAME")
-            password = project.findProperty("gpr.token") ?: System.getenv("TOKEN")
-        }
+        url 'https://libraries.minecraft.net/'
     }
     maven { url = uri("https://repo.codemc.io/repository/maven-releases/") }
     maven { url = uri("https://repo.codemc.io/repository/maven-snapshots/") }
@@ -34,15 +29,17 @@ publishing {
 }
 
 dependencies {
-    compileOnly 'gg.mineral.mineralspigot:mineralspigot-server:20250717-19.37.32'
+    compileOnly ':mineralspigot-server-20260414'
     compileOnly 'com.viaversion:viaversion-api:5.3.1'
     compileOnly 'com.viaversion:viaversion-common:5.3.1'
     compileOnly 'com.viaversion:viaversion-bukkit:5.3.1'
     implementation project(':bot-base-client')
+    implementation project(':bot-intelligence')
     compileOnly project(':bot-shared-library')
     compileOnly project(':bot-api')
     compileOnly 'com.github.retrooper:packetevents-spigot:2.7.0'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    implementation "redis.clients:jedis:2.10.2"
 }
 
 shadowJar {

@@ -43,6 +43,8 @@ class Astar(
         bestG.clear()
 
         val startNode = PathNode(start)
+        var bestNode = startNode
+
         startNode.h = movement.heuristic(start, goal)
         startNode.f = startNode.h
 
@@ -52,12 +54,11 @@ class Astar(
         while (heap.isNotEmpty()) {
             val current = heap.poll()
 
-            // 所以可能会弹出旧节点，要丢掉
             val knownBest = bestG[current.pos]
             if (knownBest != null && current.g > knownBest) continue
 
-            if (current.pos == goal) {
-                return extractNextStep(current)
+            if (current.h < bestNode.h) {
+                bestNode = current
             }
 
             if (!visitedPos.add(current.pos)) continue
@@ -73,7 +74,7 @@ class Astar(
                 val node = PathNode(nPos)
                 node.g = newG
                 node.h = movement.heuristic(nPos, goal)
-                node.f = node.g + node.h
+                node.f = node.g + 1.5 * node.h
                 node.parent = current
 
                 bestG[nPos] = newG
@@ -81,6 +82,6 @@ class Astar(
             }
         }
 
-        return ArrayList()
+        return extractNextStep(bestNode)
     }
 }

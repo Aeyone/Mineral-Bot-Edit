@@ -104,7 +104,8 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
             when (random) {
                 0 -> {
                      setMouseYaw(angleAwayFromEnemies())
-                     pressKey(Key.Type.KEY_SPACE, Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+                     pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
+                     pressKey(100, Key.Type.KEY_SPACE)
                 }
                 1 -> {
                      setMouseYaw(angleAwayFromEnemies() + 180)
@@ -160,7 +161,7 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
     override fun onEnd() {
         eating = false
         unpressButton(MouseButton.Type.RIGHT_CLICK)
-        keyboardStopAll()
+        unpressKey(Key.Type.KEY_SPACE, Key.Type.KEY_S, Key.Type.KEY_A, Key.Type.KEY_D)
         pressKey( Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
     }
 
