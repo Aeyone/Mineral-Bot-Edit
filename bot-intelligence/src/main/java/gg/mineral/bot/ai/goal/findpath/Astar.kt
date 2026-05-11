@@ -13,6 +13,7 @@ class Astar(
         var g = 0.0
         var h = 0.0
         var f = 0.0
+        var pathSize = 1
         var parent: PathNode? = null
 
         override fun compareTo(other: PathNode): Int {
@@ -56,6 +57,7 @@ class Astar(
 
             val knownBest = bestG[current.pos]
             if (knownBest != null && current.g > knownBest) continue
+            if (current.pathSize > 16) break
 
             if (current.h < bestNode.h) {
                 bestNode = current
@@ -76,6 +78,7 @@ class Astar(
                 node.h = movement.heuristic(nPos, goal)
                 node.f = node.g + 1.5 * node.h
                 node.parent = current
+                node.pathSize = current.pathSize + 1
 
                 bestG[nPos] = newG
                 heap.add(node)

@@ -34,7 +34,9 @@ class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
     override fun onStart() {
         random = Random.nextInt(0..1)
         logger.info("drink potion goal type : $random")
+        drinking = false
         cancelDrinkingTick = clientInstance.currentTick
+        unpressButton(MouseButton.Type.RIGHT_CLICK)
         keyboardStopAll()
         pressKey(100, Key.Type.KEY_SPACE)
         unpressKey(Key.Type.KEY_S, Key.Type.KEY_A, Key.Type.KEY_D)
@@ -149,6 +151,12 @@ class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         val potionSlot = getPotionSlot()
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory
+        val isHoldingValidPotion = inventory.heldItemStack?.let { isValidPotion(it) } == true
+
+        if (!isHoldingValidPotion) {
+            drinking = false
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+        }
 
         tick.finishIf("No Valid Potion Found", potionSlot == -1)
 
@@ -165,14 +173,14 @@ class DrinkPotionGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
             pressKey(10, Key.Type.valueOf("KEY_" + (potionSlot + 1)))
         }
 
-        tick.finishIf("Not Holding Valid Potion", inventory.heldItemStack?.let { isValidPotion(it) } == false)
+        tick.finishIf("Not Holding Valid Potion", !isHoldingValidPotion)
 
         tick.finishIf("Potion Not Needed", !shouldExecute())
 
         tick.prerequisite("Maintain a safe distance", distanceAwayFromEnemies() > 6.0 || (clientInstance.currentTick - cancelDrinkingTick >= 20)) {
             safeDrinkPotion()
-            unpressButton(MouseButton.Type.RIGHT_CLICK)
             drinking = false
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
         }
 
         tick.prerequisite("Drinking", drinking && getButton(MouseButton.Type.RIGHT_CLICK).isPressed) {

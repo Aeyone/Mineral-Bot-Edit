@@ -339,9 +339,9 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
 
         val fakePlayer = clientInstance.fakePlayer
         val distance = fakePlayer.distance3DTo(target)
-        if (timeMillis() - lastJumpTime > 20 * 1000) {
+        if (distance in 5.0..6.5 && timeMillis() - lastJumpTime > 4 * 1000) {
             lastJumpTime = timeMillis()
-            if (distance in 5.0..6.5 && fakePlayer.random.nextFloat() <= config.jumpProbability) {
+            if ( fakePlayer.random.nextFloat() <= config.jumpProbability) {
                 pressKey(100, Key.Type.KEY_SPACE)
             } else {
                 unpressKey( Key.Type.KEY_SPACE)
@@ -684,7 +684,7 @@ class MeleeCombatGoal(clientInstance: ClientInstance) : InventoryGoal(clientInst
         val dy = goalPos.y - lastTargetPos.y
         val dz = goalPos.z - lastTargetPos.z
 
-        if (distanceXZ(dx, dz) < 1 || dy < 1) return
+        if (distanceXZ(dx, dz) < 1 && dy < 1 && currentPath.size - currentNodeIndex > 6) return
 
         lastTargetPos = goalPos
         lastAstarFindPathTick = clientInstance.currentTick

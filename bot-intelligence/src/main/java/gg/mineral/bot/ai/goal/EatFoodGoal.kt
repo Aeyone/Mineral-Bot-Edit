@@ -33,7 +33,9 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
     override fun onStart() {
         random = Random.nextInt(0..1)
         logger.info("eat food goal type : $random")
+        eating = false
         cancelEatingTick = clientInstance.currentTick
+        unpressButton(MouseButton.Type.RIGHT_CLICK)
         keyboardStopAll()
         pressKey(100, Key.Type.KEY_SPACE)
     }
@@ -120,6 +122,12 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
         val foodSlot = getFoodSlot()
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory
+        val isHoldingValidFood = inventory.heldItemStack?.let { Item.Type.FOOD.isType(it.item.id) } == true
+
+        if (!isHoldingValidFood) {
+            eating = false
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+        }
 
         tick.finishIf("Valid Food Found", foodSlot == -1)
 
@@ -140,12 +148,12 @@ class EatFoodGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstance
             pressKey(10, Key.Type.valueOf("KEY_" + (foodSlot + 1)))
         }
 
-        tick.finishIf("Not Holding Valid Food", inventory.heldItemStack?.let { Item.Type.FOOD.isType(it.item.id) } == false)
+        tick.finishIf("Not Holding Valid Food", !isHoldingValidFood)
 
         tick.prerequisite("Maintain a safe distance", distanceAwayFromEnemies() > 6.0 || (clientInstance.currentTick - cancelEatingTick >= 20)) {
             safeEatFood()
-            unpressButton(MouseButton.Type.RIGHT_CLICK)
             eating = false
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
         }
 
         tick.prerequisite("Eating", eating && getButton(MouseButton.Type.RIGHT_CLICK).isPressed) {

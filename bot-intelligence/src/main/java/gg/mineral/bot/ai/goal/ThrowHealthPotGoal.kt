@@ -50,6 +50,10 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
     private var thrownPotionId: Int? = null
     private var potionLandingX: Double = 0.0
     private var potionLandingZ: Double = 0.0
+    private var fastDoublePot = false
+    private var fastPotsRemaining = 1
+    private var fastThrowIssued = false
+    private var fastThrowTick = 0
 
     override fun shouldExecute(): Boolean {
         // Cooldown between throws
@@ -72,13 +76,17 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
         )
 
         // Throw if health is low
-        return health < 12 && (health < 6 || distanceFromEnemies > 3.8)
+        return health < 12 && (health <= 6 || distanceFromEnemies > 3.8)
     }
 
     override fun onStart() {
         currentState = PotState.PREPARING
         stateStartTick = clientInstance.currentTick
         thrownPotionId = null
+        fastDoublePot = clientInstance.fakePlayer.health <= 6.0f
+        fastPotsRemaining = if (fastDoublePot) 2 else 1
+        fastThrowIssued = false
+        unpressButton(MouseButton.Type.RIGHT_CLICK)
         // Move forward by default
         pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
         unpressKey(Key.Type.KEY_S, Key.Type.KEY_A, Key.Type.KEY_D)
@@ -107,9 +115,13 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
     }
 
     private fun handlePreparing(tick: Tick, fakePlayer: FakePlayer, inventory: gg.mineral.bot.api.inv.Inventory) {
+        unpressButton(MouseButton.Type.RIGHT_CLICK)
         val healthSlot = getHealthPotSlot()
 
-        tick.finishIf("No Valid Health Pot Found", healthSlot == -1)
+        if (healthSlot == -1) {
+            tick.finishIf("No Valid Health Pot Found", true)
+            return
+        }
 
         // If potion is already in hotbar, just select it
         if (healthSlot <= 8) {
@@ -142,12 +154,35 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
     }
 
     private fun handleAiming(tick: Tick, fakePlayer: FakePlayer, inventory: gg.mineral.bot.api.inv.Inventory) {
+        unpressButton(MouseButton.Type.RIGHT_CLICK)
+
         // Double check we still need to pot
-        tick.finishIf("Potting Not Needed", !shouldExecute())
+        if (!shouldExecute()) {
+            tick.finishIf("Potting Not Needed", true)
+            return
+        }
 
         // Make sure we're still holding the potion
         val isHoldingHealth = inventory.heldItemStack?.let { isHealthPot(it) } == true
-        tick.finishIf("Not Holding Health Pot", !isHoldingHealth)
+        if (!isHoldingHealth) {
+            tick.finishIf("Not Holding Health Pot", true)
+            return
+        }
+
+        val health = min(
+            fakePlayer.health.toDouble(),
+            healthRegression.predict((clientInstance.currentTick + clientInstance.configuration.predictionHorizon).toDouble())
+        )
+        if (health <= 6.0) {
+            if (!fastDoublePot) {
+                fastDoublePot = true
+                fastPotsRemaining = 2
+            }
+            setMouseYaw(angleAwayFromEnemies())
+            setMousePitch(60.0f)
+            transitionTo(PotState.THROWING)
+            return
+        }
 
         val closestEnemy = closestEnemy()
         val distanceFromEnemies = distanceAwayFromEnemies()
@@ -254,6 +289,52 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
     }
 
     private fun handleThrowing(tick: Tick, fakePlayer: FakePlayer, inventory: gg.mineral.bot.api.inv.Inventory) {
+        if (fastDoublePot) {
+            setMouseYaw(angleAwayFromEnemies())
+            setMousePitch(60.0f)
+
+            if (!fastThrowIssued) {
+                if (inventory.heldItemStack?.let { isHealthPot(it) } != true) {
+                    unpressButton(MouseButton.Type.RIGHT_CLICK)
+                    transitionTo(PotState.PREPARING)
+                    return
+                }
+                pressButton(5, MouseButton.Type.RIGHT_CLICK)
+                fastThrowIssued = true
+                fastThrowTick = clientInstance.currentTick
+                fastPotsRemaining--
+                return
+            }
+
+            if (clientInstance.currentTick - fastThrowTick < 1) {
+                return
+            }
+
+            fastThrowIssued = false
+            if (fastPotsRemaining > 0) {
+                val nextHealthSlot = getHealthPotSlot(inventory.heldSlot)
+                if (nextHealthSlot != -1) {
+                    if (nextHealthSlot <= 8) {
+                        pressKey(10, Key.Type.valueOf("KEY_" + (nextHealthSlot + 1)))
+                        transitionTo(PotState.THROWING)
+                    } else {
+                        transitionTo(PotState.PREPARING)
+                    }
+                } else {
+                    transitionTo(PotState.COOLDOWN)
+                }
+            } else {
+                transitionTo(PotState.COOLDOWN)
+            }
+            return
+        }
+
+        if (inventory.heldItemStack?.let { isHealthPot(it) } != true) {
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+            transitionTo(PotState.PREPARING)
+            return
+        }
+
         // Throw the potion
         pressButton(5, MouseButton.Type.RIGHT_CLICK)
 
@@ -334,6 +415,10 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
     private fun transitionTo(newState: PotState) {
         currentState = newState
         stateStartTick = clientInstance.currentTick
+        if (newState != PotState.THROWING) {
+            fastThrowIssued = false
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+        }
 
 
         // Update last pot tick when we start cooldown
@@ -353,6 +438,7 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
             pressKey(10, Key.Type.KEY_E)
         healthRegression.clear()
         // Restore normal movement
+        unpressButton(MouseButton.Type.RIGHT_CLICK)
         unpressKey(Key.Type.KEY_S)
         pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
     }
@@ -378,11 +464,12 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
         return item.id == Item.POTION && itemStack.durability == 16421
     }
 
-    private fun getHealthPotSlot(): Int {
+    private fun getHealthPotSlot(excludedSlot: Int = -1): Int {
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory
 
         for (i in 0..35) {
+            if (i == excludedSlot) continue
             val itemStack = inventory.getItemStackAt(i) ?: continue
             if (isHealthPot(itemStack)) {
                 return i

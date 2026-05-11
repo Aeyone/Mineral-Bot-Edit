@@ -43,6 +43,8 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
     override val maxDuration: Long = 100
     private var lastPearledTick = 0
     private var lastSeeEnemyTick = 0
+    private var goalStartTick = 0
+    private var failedCooldownUntilTick = 0
 
 
     private enum class Type : MathUtil {
@@ -85,6 +87,8 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
     }
 
     override fun shouldExecute(): Boolean {
+        if (clientInstance.currentTick < failedCooldownUntilTick) return false
+
         var canSeeEnemy = canSeeEnemy()
         if (!canSeeEnemy) lastSeeEnemyTick = clientInstance.currentTick
         if (!canSeeEnemy || clientInstance.currentTick - lastPearledTick < 20 * clientInstance.configuration.pearlCooldown) return false
@@ -108,6 +112,7 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
     }
 
     override fun onStart() {
+        goalStartTick = clientInstance.currentTick
         logger.info("ender pearl goal start.")
     }
 
@@ -138,6 +143,13 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
     }
 
     override fun onTick(tick: Tick) {
+        if (clientInstance.currentTick - goalStartTick >= 20 * 3) {
+            failedCooldownUntilTick = clientInstance.currentTick + 20 * 5
+            logger.info("ender pearl goal timed out; cooling down for 5 seconds.")
+            finish()
+            return
+        }
+
         val pearlSlot = getPearlSlot()
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory

@@ -38,7 +38,8 @@ data class BotConfiguration(
     var friendlyUUIDs: MutableSet<UUID> = BotAPI.INSTANCE.collections().newSet(),
     var potAccuracy: Double = 0.5,
     var jumpProbability : Float = 0.1f,
-    var wtapProbability : Float = 0.5f
+    var wtapProbability : Float = 0.5f,
+    var aggressivePotProbability: Float = 0.2f
 ) {
     val fullUsername: String
         get() = "$usernamePrefix$username$usernameSuffix"
@@ -85,6 +86,7 @@ data class BotConfiguration(
             private var potAccuracy: Double = 0.5
             private var jumpProbability : Float = 0.1f
             private var wtapProbability : Float = 0.5f
+            private var aggressivePotProbability: Float = 0.2f
 
             fun username(username: String) = apply { this.username = username }
             fun usernamePrefix(usernamePrefix: String) = apply { this.usernamePrefix = usernamePrefix }
@@ -138,6 +140,8 @@ data class BotConfiguration(
                 apply { this.disableEntityCollisions = disableEntityCollisions }
             fun jumpProbability(jumpProbability : Float) = apply { this.jumpProbability = jumpProbability }
             fun wtapProbability(wtapProbability : Float) = apply { this.wtapProbability = wtapProbability }
+            fun aggressivePotProbability(aggressivePotProbability: Float) =
+                apply { this.aggressivePotProbability = aggressivePotProbability }
 
             fun build() = BotConfiguration(
                 username,
@@ -172,7 +176,8 @@ data class BotConfiguration(
                 friendlyUUIDs,
                 potAccuracy,
                 jumpProbability,
-                wtapProbability
+                wtapProbability,
+                aggressivePotProbability
             )
         }
     }

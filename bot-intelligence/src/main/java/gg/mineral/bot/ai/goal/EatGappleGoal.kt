@@ -43,7 +43,9 @@ class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstan
     override fun onStart() {
         random = Random.nextInt(0..1)
         logger.info("eat gapple goal type : $random")
+        eating = false
         cancelEatingTick = clientInstance.currentTick
+        unpressButton(MouseButton.Type.RIGHT_CLICK)
         keyboardStopAll()
         pressKey(100, Key.Type.KEY_SPACE)
     }
@@ -142,6 +144,12 @@ class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstan
         val gappleSlot = getGappleSlot()
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory
+        val isHoldingValidGapple = inventory.heldItemStack?.item?.id == Item.GOLDEN_APPLE
+
+        if (!isHoldingValidGapple) {
+            eating = false
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
+        }
 
         tick.finishIf("Valid gapple slot not found", gappleSlot == -1)
 
@@ -157,14 +165,14 @@ class EatGappleGoal(clientInstance: ClientInstance) : InventoryGoal(clientInstan
             pressKey(10, Key.Type.valueOf("KEY_" + (gappleSlot + 1)))
         }
 
-        tick.finishIf("Not Holding Valid Gapple", inventory.heldItemStack?.item?.id != Item.GOLDEN_APPLE)
+        tick.finishIf("Not Holding Valid Gapple", !isHoldingValidGapple)
 
         tick.finishIf("Has Regen", fakePlayer.activePotionEffectIds.any { it == PotionEffectType.REGENERATION.id })
 
         tick.prerequisite("Maintain a safe distance", distanceAwayFromEnemies() > 6.0 || (clientInstance.currentTick - cancelEatingTick >= 20)) {
             safeEatGapple()
-            unpressButton(MouseButton.Type.RIGHT_CLICK)
             eating = false
+            unpressButton(MouseButton.Type.RIGHT_CLICK)
         }
 
         tick.prerequisite("Eating", eating && getButton(MouseButton.Type.RIGHT_CLICK).isPressed) {
