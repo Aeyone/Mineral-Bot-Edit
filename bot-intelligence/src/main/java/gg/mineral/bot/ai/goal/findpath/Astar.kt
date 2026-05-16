@@ -57,7 +57,6 @@ class Astar(
 
             val knownBest = bestG[current.pos]
             if (knownBest != null && current.g > knownBest) continue
-            if (current.pathSize > 16) break
 
             if (current.h < bestNode.h) {
                 bestNode = current

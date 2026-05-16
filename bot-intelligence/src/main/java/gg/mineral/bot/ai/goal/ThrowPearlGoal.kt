@@ -99,21 +99,71 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
 
         if (!inventory.contains(Item.ENDER_PEARL)) return false
 
-        val world = fakePlayer.world
+        val entity = closestEnemy(fakePlayer) ?: return false
+        val type = Type.entries.firstOrNull { it.test(fakePlayer, entity) } ?: return false
 
-        val entity = world.entities.filterIsInstance<ClientPlayer>().minByOrNull {
-            if (!clientInstance.configuration.friendlyUUIDs.contains(it.uuid)
-            ) fakePlayer.distance3DTo(it) else Double.MAX_VALUE
-        } ?: return false
+        if (fakePlayer.health <= 16.0) return false
+        if (!hasValidPearlTrajectory(fakePlayer, entity, type)) {
+            failedCooldownUntilTick = clientInstance.currentTick + 20 * 2
+            return false
+        }
 
-        for (t in Type.entries) if (t.test(fakePlayer, entity)) return fakePlayer.health > 16.0
-
-        return false
+        return true
     }
 
     override fun onStart() {
         goalStartTick = clientInstance.currentTick
         logger.info("ender pearl goal start.")
+    }
+
+    private fun closestEnemy(fakePlayer: FakePlayer): ClientPlayer? {
+        return fakePlayer.world.entities.filterIsInstance<ClientPlayer>().minByOrNull {
+            if (!clientInstance.configuration.friendlyUUIDs.contains(it.uuid)
+            ) fakePlayer.distance3DTo(it) else Double.MAX_VALUE
+        }
+    }
+
+    private fun getCollisionFunction(type: Type, fakePlayer: FakePlayer, entity: ClientPlayer): CollisionFunction {
+        val world = fakePlayer.world
+        val targetX = entity.x + (entity.x - entity.lastX)
+        val targetY = entity.y + (entity.y - entity.lastY)
+        val targetZ = entity.z + (entity.z - entity.lastZ)
+
+        return when (type) {
+            Type.FORWARD -> CollisionFunction { x1: Double, y1: Double, z1: Double ->
+                abs(x1 - targetX) < 4 &&
+                        abs(y1 - targetY) < 1 &&
+                        abs(z1 - targetZ) < 4 &&
+                        hasHitBlock(world, x1, y1, z1)
+            }
+
+            Type.RETREAT -> CollisionFunction { x1: Double, y1: Double, z1: Double ->
+                hasHitBlock(world, x1, y1, z1)
+            }
+
+            Type.SIDE -> CollisionFunction { x1: Double, y1: Double, z1: Double ->
+                val dX = abs(x1 - targetX)
+                val dZ = abs(z1 - targetZ)
+
+                sqrt(dX * dX + dZ * dZ) in 2.5..3.6 &&
+                        hasHitBlock(world, x1, y1, z1)
+            }
+        }
+    }
+
+    private fun hasValidPearlTrajectory(fakePlayer: FakePlayer, entity: ClientPlayer, type: Type): Boolean {
+        val angles = getAngles(fakePlayer, entity)
+        val trajectory = EnderPearlTrajectory(
+            fakePlayer.world,
+            fakePlayer.x,
+            fakePlayer.y + fakePlayer.eyeHeight,
+            fakePlayer.z,
+            angles[0],
+            angles[1],
+            getCollisionFunction(type, fakePlayer, entity)
+        )
+
+        return trajectory.compute(100) == Trajectory.Result.VALID
     }
 
     private fun canSeeEnemy(): Boolean {
@@ -153,14 +203,10 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
         val pearlSlot = getPearlSlot()
         val fakePlayer = clientInstance.fakePlayer
         val inventory = fakePlayer.inventory
-        val world = fakePlayer.world
 
         tick.finishIf("Valid pearl slot not found", pearlSlot == -1)
 
-        val entity = world.entities.filterIsInstance<ClientPlayer>().minByOrNull {
-            if (!clientInstance.configuration.friendlyUUIDs.contains(it.uuid)
-            ) fakePlayer.distance3DTo(it) else Double.MAX_VALUE
-        }
+        val entity = closestEnemy(fakePlayer)
 
         tick.finishIf("Enemy is not present", entity == null)
         entity ?: return
@@ -169,6 +215,12 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
             it.test(fakePlayer, entity)
         } ?: run {
             tick.finishIf("No valid type found", true)
+            return
+        }
+
+        if (!hasValidPearlTrajectory(fakePlayer, entity, type)) {
+            failedCooldownUntilTick = clientInstance.currentTick + 20 * 2
+            tick.finishIf("Pearl trajectory invalid before switching", true)
             return
         }
 
@@ -187,46 +239,9 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
             pressKey(10, Key.Type.valueOf("KEY_" + (pearlSlot + 1)))
         }
 
-        tick.finishIf("Not Holding Valid Pearl", inventory.heldItemStack?.item?.id != Item.ENDER_PEARL)
-
-        val targetX = entity.x + (entity.x - entity.lastX)
-        val targetY = entity.y + (entity.y - entity.lastY)
-        val targetZ = entity.z + (entity.z - entity.lastZ)
-
-        val collisionFunction = when (type) {
-            Type.FORWARD -> CollisionFunction { x1: Double, y1: Double, z1: Double ->
-                abs(
-                    x1
-                            - targetX
-                ) < 4 && abs(
-                    y1
-                            - targetY
-                ) < 1 && abs(
-                    z1
-                            - targetZ
-                ) < 4 && hasHitBlock(world, x1, y1, z1)
-            }
-
-            Type.RETREAT -> CollisionFunction { x1: Double, y1: Double, z1: Double ->
-                hasHitBlock(
-                    world,
-                    x1,
-                    y1,
-                    z1
-                )
-            }
-
-            Type.SIDE -> CollisionFunction { x1: Double, y1: Double, z1: Double ->
-                val dX = abs(x1 - targetX)
-                val dZ = abs(z1 - targetZ)
-
-                sqrt(dX * dX + dZ * dZ) in 2.5..3.6 && hasHitBlock(
-                    world,
-                    x1,
-                    y1,
-                    z1
-                )
-            }
+        if (inventory.heldItemStack?.item?.id != Item.ENDER_PEARL) {
+            tick.finishIf("Not Holding Valid Pearl", true)
+            return
         }
 
         // TODO: Implement this
@@ -267,26 +282,17 @@ class ThrowPearlGoal(clientInstance: ClientInstance) : InventoryGoal(clientInsta
 
         // Temporary implementation
         val angles = getAngles(fakePlayer, entity)
-        setMouseYaw(angles[0])
-        setMousePitch(angles[1])
+        tick.execute {
+            setMouseYaw(angles[0])
+            setMousePitch(angles[1])
 
-        val trajectory = EnderPearlTrajectory(
-            world,
-            fakePlayer.x,
-            fakePlayer.y + fakePlayer.eyeHeight,
-            fakePlayer.z,
-            fakePlayer.yaw,
-            fakePlayer.pitch,
-            collisionFunction
-        )
+            val yawDiff = abs(angleDifference(fakePlayer.yaw, angles[0]).toDouble())
+            val pitchDiff = abs(angleDifference(fakePlayer.pitch, angles[1]).toDouble())
+            if (yawDiff > 5.0 || pitchDiff > 5.0) return@execute
 
-        tick.executeAsync(1, {
-            trajectory.compute(100) == Trajectory.Result.VALID
-        }) {
-            if (!it) return@executeAsync
             lastPearledTick = clientInstance.currentTick
             pressButton(10, MouseButton.Type.RIGHT_CLICK)
-            tick.finishIf("Thrown Pearl", it)
+            tick.finishIf("Thrown Pearl", true)
         }
     }
 

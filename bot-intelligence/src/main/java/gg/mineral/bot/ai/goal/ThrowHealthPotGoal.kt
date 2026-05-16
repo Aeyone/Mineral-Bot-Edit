@@ -54,6 +54,7 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
     private var fastPotsRemaining = 1
     private var fastThrowIssued = false
     private var fastThrowTick = 0
+    private var throwIssued = false
 
     override fun shouldExecute(): Boolean {
         // Cooldown between throws
@@ -86,6 +87,7 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
         fastDoublePot = clientInstance.fakePlayer.health <= 6.0f
         fastPotsRemaining = if (fastDoublePot) 2 else 1
         fastThrowIssued = false
+        throwIssued = false
         unpressButton(MouseButton.Type.RIGHT_CLICK)
         // Move forward by default
         pressKey(Key.Type.KEY_W, Key.Type.KEY_LCONTROL)
@@ -329,14 +331,17 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
             return
         }
 
-        if (inventory.heldItemStack?.let { isHealthPot(it) } != true) {
-            unpressButton(MouseButton.Type.RIGHT_CLICK)
-            transitionTo(PotState.PREPARING)
+        if (!throwIssued) {
+            if (inventory.heldItemStack?.let { isHealthPot(it) } != true) {
+                unpressButton(MouseButton.Type.RIGHT_CLICK)
+                transitionTo(PotState.PREPARING)
+                return
+            }
+
+            pressButton(5, MouseButton.Type.RIGHT_CLICK)
+            throwIssued = true
             return
         }
-
-        // Throw the potion
-        pressButton(5, MouseButton.Type.RIGHT_CLICK)
 
         // Look for the thrown potion entity
         val world = fakePlayer.world
@@ -415,8 +420,11 @@ class ThrowHealthPotGoal(clientInstance: ClientInstance) : InventoryGoal(clientI
     private fun transitionTo(newState: PotState) {
         currentState = newState
         stateStartTick = clientInstance.currentTick
-        if (newState != PotState.THROWING) {
+        if (newState == PotState.THROWING) {
+            throwIssued = false
+        } else {
             fastThrowIssued = false
+            throwIssued = false
             unpressButton(MouseButton.Type.RIGHT_CLICK)
         }
 
